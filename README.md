@@ -12,6 +12,7 @@ Package requirements:
 - time
 - sklearn
 - one of either our Ripser++ fork or Gudhi
+- [homogeneousUROT](https://github.com/tlacombe/homogeneousUROT)
 
 Tested on Mac and Linux.
 
