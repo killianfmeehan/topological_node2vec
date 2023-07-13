@@ -27,7 +27,7 @@ With apologies, getting a CUDA setup with GPUs successfully accessible is someth
 
 ### usage
 
-There are quite a lot of hyperparameters for this network, most of which have proven important in at least some of our experiments. This is an attempt at a brief summary for users. Alternatively (or in concert), please see the included tn2v_examples.ipynb notebook which repeats the examples shown in our paper.
+There are quite a lot of hyperparameters for this code, most of which have proven important in at least some of our experiments. This is an attempt at a brief summary for users. Alternatively (or in concert), please see the included tn2v_examples.ipynb notebook which repeats the examples shown in our paper.
 
 ---
 
