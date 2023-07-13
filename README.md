@@ -87,6 +87,8 @@ Q_array = [1 for i in range(LEN+1)]
 ```
 In the special case that r*l > the size of the input data, neighborhoods ARE NOT SAMPLED. Instead, the direct distance matrix column vectors are inverted, normalized, and used as probability vectors. (See the paper, Remark 1.)
 
+---
+
 **nbhd_regen**: this value instructs the network on how often it should resample the random neighborhoods around each point used as training data. A value of n means that the neighborhoods will be regenerated every n-th epoch. This value is ignored if the neighborhoods are not randomly generated, as above.
 ```python
 nbhd_regen = 1 # any positive integer, or None
