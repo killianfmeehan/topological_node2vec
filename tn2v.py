@@ -421,6 +421,9 @@ class TN2V:
         self.homology_mode = cpu_gpu
         self.timer_dict = {}
         
+        self.computational_package_imported = False
+        self.PHF = None
+        
         
     def softmax(self, x):
         '''
@@ -1116,12 +1119,22 @@ class TN2V:
     
     def gen_PD(self,D):
         
+        if not self.computational_package_imported:
+            if self.homology_mode == 'gpu':
+                import ripserplusplus as rpp
+                self.computational_package_imported = True
+                self.PHF = rpp
+            elif self.homology_mode == 'cpu':
+                import gudhi
+                self.computational_package_imported = True
+                self.PHF = gudhi
+        
         if self.homology_mode == 'gpu':
 
             def radius_of_simplex(s):
                 return np.max([D[s[i]][s[j]] for i in range(len(s)) for j in range(i+1,len(s))])
 
-            X = rpp.run('--format distance --dim '+str(max(self.HD)),D)
+            X = self.PHF.run('--format distance --dim '+str(max(self.HD)),D)
 
             rpp_hom_dict = {}
             for dim in self.HD:
@@ -1491,54 +1504,6 @@ class TN2V:
             self.grad_W_B_LIN[h] = grad_W_B_lin
             
             self.grad_B_P[h] = self.generate_grad_B_P(h)
-            
-            #grad_B_P_BATCH = self.generate_grad_B_P(h)
-            #if not self.batches:
-            #    self.grad_B_P[h] = grad_B_P_BATCH
-            #else:
-            #    self.grad_B_P[h] = np.zeros(grad_B_P_BATCH.shape)
-                
-                # copy in COLUMNS but swapped around using batch_to_ind
-                # oh good gods
-                # for every sequential BATCH index
-                # oh no wait, don't; take every birth and death time (this is what generate_grad_B_P returns)
-            #    for c in range(grad_B_P_BATCH.shape[1]):
-                    
-                    # divide by 2 and take the floor
-                    # this is now the actual sequential batch index
-                    # WAAAAAAAAAAAAAIT a second
-                    # this is wrong? This is super wrong
-                    # we're going by COLUMNS here, not rows
-                    # the columns of grad_B_P_BATCH (the object returned by generate_grad_B_P)
-                    #     are m*n — every coordinate of every point of the pointcloud
-                    #     if I'm trying to get the point itself without coordinate fluff,
-                    #     I need to divide by self.embed_dim,
-                    #     NOT by 2.0. In fact, this would explain why things were working fine in 2D
-                    #     but went to hell in higher dimensions.
-                    # THE GUILTY:
-                    #nonlinear_c = int(float(c)/2.0)
-            #        nonlinear_c = int(float(c)/self.embed_dim)
-                    
-                    # save the information of if you were odd or not, basically
-                    # MORE GUILTY
-                    #adjust = c%2
-            #        adjust = c%self.embed_dim
-                    
-                    
-                    #if nonlinear_c in self.batch_to_original.keys():
-                    
-                    # now, for every birth death coordinate of every non-trivial generator ————
-                    # OOPS, I WAS PUTTING MINIBATCH STUFF INTO A FULL MATRIX WITHOUT RESETTING COORDINATES
-                    #     so I've now fixed that in generate_grad_B_P, so now now NOW,
-                    # this goes through every column, i.e., every birth and death coord of the nontrivial source generators
-            #        for r in range(grad_B_P_BATCH.shape[0]):
-                        # and it says, hey, wait, now that I've changed stuff to make any goddamn sense, I do not NEED this?
-            #            self.grad_B_P[h][r][2*self.batch_to_original[nonlinear_c]+adjust] += grad_B_P_BATCH[r][c]
-                        
-                    #else:
-                    #    col_sum = np.sum([grad_B_P_BATCH[r][c] for r in range(grad_B_P_BATCH.shape[0])])
-                    #    if col_sum > 0:
-                    #        print('I\'ll eat my hat.')
             
             print('grad_W_B_LIN for elucidation')
             print(self.grad_W_B_LIN[h])
