@@ -23,7 +23,7 @@ With apologies, getting a CUDA setup with GPUs successfully accessible is someth
 - put utils.py from the homogeousUROT package in the same folder as this repository's tn2v.py
 - see the notebook tn2v_examples.ipynb for how to utilize the main function of TN2V, and modify the data input and hyperparameters from these examples to suit your needs
 
-*In a future update, I would like to adjust the code to receive an arbitrary persistence homology computing function from outside, allowing users to specify the use of package installed on their system.
+*In a future update, I would like to adjust the code to receive an arbitrary persistent homology computing function from the outside, allowing users to specify the use of any package/function installed on their system.
 
 ### usage
 
