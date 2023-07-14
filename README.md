@@ -96,7 +96,14 @@ nbhd_regen = 1 # any positive integer, or None
 
 ---
 
-**mbs_array**: integer values declaring how many points are to be minibatched at each epoch. Currently, minibatching is ONLY DONE for the topological loss function, while the node2vec loss function always operates on the full dataset in each epoch. I plan to update this code with the ability to input dual arrays of minibatches, but in my testing minibatches on the node2vec loss function dramatically reduced embedding quality.
+**mbs**: integer values declaring how many points are to be minibatched at each epoch. Currently, minibatching is ONLY DONE for the topological loss function, while the node2vec loss function always operates on the full dataset in each epoch. I plan to update this code with the ability to input dual arrays of minibatches, but in my testing minibatches on the node2vec loss function dramatically reduced embedding quality.
 ```python
 mbs_array = [int(data.shape[0]*1.00) for i in range(LEN+1)]
+```
+
+---
+
+**lift**: this is an important hyperparameter that we added after analysis of initial poor performance of the topological loss function on simple embeddings. This is a float which scales off of the total diameter of the target persistence diagram (the PD of the input), meaning that there should be no need for a lift value > 1.0. Simply, this causes the topological loss function to act on translations (lifts) of the two PDs shifted directly away from the diagonal by lift*diam(target PD). This has proved extremely important for embeddings in which original Node2vec erases the topology so thoroughly that most generators match to the diagonal and not to each other.
+```python
+lift_array = [0.0 for i in range(LEN+1)]
 ```
