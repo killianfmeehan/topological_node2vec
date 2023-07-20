@@ -18,7 +18,7 @@ Tested on Mac and Linux.
 
 ### installation
 
-With apologies, getting a CUDA setup with GPUs successfully accessible is something I've only pulled off a handful of times on my precise system. IF you can get such a setting with the Ripser++ fork running OR you simply want to test this on CPU, then all that's left is to:
+With apologies for the lack of instruction, getting a CUDA setup with GPUs successfully accessible is something I've only pulled off a handful of times on my precise system. IF you can get such a setting with the Ripser++ fork running OR you simply want to test this on CPU, then all that's left is to:
 - install the other requisite packages above
 - put utils.py from the homogeousUROT package in the same folder as this repository's tn2v.py
 - see the notebook tn2v_examples.ipynb for how to utilize the main function of TN2V, and modify the data input and hyperparameters from these examples to suit your needs
