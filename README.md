@@ -13,6 +13,7 @@ Package requirements:
 - sklearn
 - one of either our Ripser++ fork or Gudhi
 - [homogeneousUROT](https://github.com/tlacombe/homogeneousUROT)
+- jupyter (not strictly necessary, but this code was designed with notebook operation in mind)
 
 Tested on Mac and Linux.
 
@@ -26,6 +27,10 @@ With apologies for the lack of instruction, getting a CUDA setup with GPUs succe
 *In a future update, I would like to adjust the code to receive an arbitrary persistent homology computing function from the outside, allowing users to specify the use of any package/function installed on their system.
 
 ### usage
+
+Due to the large amount of hyperparameter adjustment that is necessary for operating this code and the diverse data-types of the input arguments, I have designed this code to be used most naturally from a notebook.
+
+### hyperparameters
 
 There are quite a lot of hyperparameters for this code, most of which have proven important in at least some of our experiments. This is an attempt at a brief summary for users. Alternatively (or in concert), please see the included tn2v_examples.ipynb notebook which repeats the examples shown in our paper.
 
