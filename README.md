@@ -1,5 +1,5 @@
 # topological_node2vec
-This is a modification of the [Node2vec](https://snap.stanford.edu/node2vec/) machine learning framework which incorporates topological information.
+This is a modification of the [Node2vec](https://snap.stanford.edu/node2vec/) machine learning framework which incorporates topological information, as detailed in this [paper](https://arxiv.org/abs/2309.08241).
 
 As this code involves the computation of Persistence Diagrams, the computation can be a bit heavy without specialized packages often utilizing GPUs. Even so, on small examples this code can be run with CPU only. Currently, GPUs are utilized using [a modification of the Ripser++ package](https://github.com/jnclark/ripser-plusplus/tree/return-indices), while CPUs are utilized using [Gudhi](https://gudhi.inria.fr/).
 
@@ -81,7 +81,7 @@ If mode is 'correlation_matrix' a distance matrix is calculated using reciprocal
 
 ---
 
-**l,r,p,q**: these are the Node2vec neighborhood generation parameters (see Section 2 in [the paper](empty))
+**l,r,p,q**: these are the Node2vec neighborhood generation parameters (see Section 2 in [the paper](https://arxiv.org/abs/2309.08241))
 ```python
 r = 8
 l = 1
