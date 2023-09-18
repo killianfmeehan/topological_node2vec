@@ -19,7 +19,7 @@ Tested on Mac and Linux.
 
 ### installation
 
-With apologies for the lack of instruction, getting a CUDA setup with GPUs successfully accessible is something I've only pulled off a handful of times on my precise system. IF you can get such a setting with the Ripser++ fork running OR you simply want to test this on CPU, then all that's left is to:
+With apologies for the lack of instruction, getting a CUDA setup with GPUs successfully accessible is something I've only pulled off a handful of times on my precise system. If you can get such a setting with the Ripser++ fork running or you simply want to test this on CPU, then all that's left is to:
 - install the other requisite packages above
 - put utils.py from the homogeousUROT package in the same folder as this repository's tn2v.py
 - see the notebook tn2v_examples.ipynb for how to utilize the main function of TN2V, and modify the data input and hyperparameters from these examples to suit your needs
@@ -58,7 +58,7 @@ L0_array = [lambda0 for i in range(LEN+1)]
 L1_array = [lambda1 for i in range(LEN+1)]
 L2_array = [lambda2 for i in range(LEN+1)]
 ```
-L0 corresponds to the node2vec loss function; L1 corresponds to the topological loss of dimensions 1 (perimeters and disks); L2 corresponds to the topological loss of dimension 2 (surfaces and spheres). Any of these which are set to 0 (or not set at all) for a given epoch will not be measured / applied.
+L0 corresponds to the node2vec loss function; L1 corresponds to the topological loss of dimension 1 (perimeters and disks); L2 corresponds to the topological loss of dimension 2 (surfaces and spheres). Any of these which are set to 0 (or not set at all) for a given epoch will not be measured / applied.
 
 ---
 
