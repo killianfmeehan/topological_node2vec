@@ -71,12 +71,15 @@ main_directory = home+'/tn2v_output/'
 
 ---
 
-**data, mode**: data is a pd.DataFrame. Its structure depends on the subsequent argument.
+**data_\*, reciprocal_gamma, reciprocal_nu**: you must specify at least one of [data_pointcloud, data_distance_matrix, data_correlation_matrix]. If not provided, data_distance_matrix or data_correlation_matrix will be automatically generated from the other given data. Specifically, the conversion between distance/correlation matrices is given by the values reciprocal_gamma and reciprocal_nu (see the paper, beginning of Section 4).
 ```python
-data = circles(cn,cd) # input data, should be a pd.DataFrame
-mode = 'pointcloud'
-```
-Mode can be one of ['pointcloud','distance_matrix','correlation_matrix'].
+data_pointcloud = pd.DataFrame
+data_distance_matrix = None
+data_correlation_matrix = None
+
+reciprocal_gamma = 0.001
+reciprocal_nu = 1.0
+```Mode can be one of ['pointcloud','distance_matrix','correlation_matrix'].
 Internally, the code requires or creates a distance matrix for PD computation, and it requires or creates a correlation matrix ('reciprocal' of distance matrix: small distance = high correlation) for node2vec neighborhood generation.
 
 If mode is 'pointcloud', both the pairwise distance matrix and correlation matrix will be computed from this input.
