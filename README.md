@@ -79,7 +79,8 @@ data_correlation_matrix = None
 
 reciprocal_gamma = 0.001
 reciprocal_nu = 1.0
-```Mode can be one of ['pointcloud','distance_matrix','correlation_matrix'].
+```
+Mode can be one of ['pointcloud','distance_matrix','correlation_matrix'].
 Internally, the code requires or creates a distance matrix for PD computation, and it requires or creates a correlation matrix ('reciprocal' of distance matrix: small distance = high correlation) for node2vec neighborhood generation.
 
 If mode is 'pointcloud', both the pairwise distance matrix and correlation matrix will be computed from this input.
