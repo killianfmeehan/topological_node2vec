@@ -26,27 +26,31 @@ import utils
 def tn2v(
     main_directory,
     project_name,
-    data,
-    mode,
     embedding_dimension,
-    param_array,
+    n2v_param_array,
     l0_array,
     l1_array,
     l2_array,
     eta_array,
     LEN,
     cpu_gpu='cpu',
+    nbhd_regen=None,
+    data_pointcloud=None,
+    data_distance_matrix=None,
+    data_correlation_matrix=None,
     mbs_array=None,
     lift_array=None,
-    gpd=None,
-    W1_data=None,
-    grad_old=False,
-    nbhd_regen=None,
+    target_pd=None, #formerly gpd
+    initial_W1=None, #formerly W1_data
     pointcloud_data_save=None,
     pointcloud_vf_save=None,
-    alpha=1.0
+    reciprocal_gamma=0.0001,
+    reciprocal_nu=1.0
 ):
     
+
+    if data_pointcloud is None and data_distance_matrix is None and data_correlation_matrix is None:
+        sys.exit("You must specify at least one of data_pointcloud, data_distance_matrix, data_correlation_matrix")
     
     
     if not project_name.endswith('/'):
@@ -56,7 +60,7 @@ def tn2v(
     if not os.path.isdir(path):
         os.mkdir(path)
    
-    data.to_csv(path+'_original_data.csv')
+    #data.to_csv(path+'_original_data.csv')
     
     P = pd.DataFrame()
     P['eta'] = eta_array
@@ -65,10 +69,10 @@ def tn2v(
     P['L1'] = l1_array
     P['L2'] = l2_array
 
-    P['l'] = [param_array[i]['l'] for i in range(len(param_array))]
-    P['r'] = [param_array[i]['r'] for i in range(len(param_array))]
-    P['p'] = [param_array[i]['p'] for i in range(len(param_array))]
-    P['q'] = [param_array[i]['q'] for i in range(len(param_array))]
+    P['l'] = [n2v_param_array[i]['l'] for i in range(len(n2v_param_array))]
+    P['r'] = [n2v_param_array[i]['r'] for i in range(len(n2v_param_array))]
+    P['p'] = [n2v_param_array[i]['p'] for i in range(len(n2v_param_array))]
+    P['q'] = [n2v_param_array[i]['q'] for i in range(len(n2v_param_array))]
 
     P['lift'] = lift_array
 
@@ -78,37 +82,35 @@ def tn2v(
     P.to_csv(path+'data_array.csv')
     
     Q = {
-        'mode':mode,
         'embedding_dimension':embedding_dimension,
         'LEN':LEN,
         'nbhd_regen':nbhd_regen,
-        'alpha':alpha
+        'gamma':reciprocal_gamma,
+        'nu':reciprocal_nu
     }
     
     pd.Series(Q).to_csv(path+'data_scalar.csv')
     
-    X = TN2V(name=project_name,
-             mode=mode,
-             data_in=data,
+    X = TN2V(project_name=project_name,
+             data_pointcloud=data_pointcloud,
+             data_distance_matrix=data_distance_matrix,
+             data_correlation_matrix=data_correlation_matrix,
              embed_dim=embedding_dimension,
-             given_pd=gpd,
-             W1_data=W1_data,
+             target_pd=target_pd,
+             initial_W1=initial_W1,
              name_regen=False,
-             grad_old=grad_old,
-             alpha=alpha,
-             cpu_gpu=cpu_gpu)
-    
-    #mega_out = {}
-    #timer_data = {}
+             cpu_gpu=cpu_gpu,
+             reciprocal_gamma=reciprocal_gamma,
+             reciprocal_nu=reciprocal_nu)
+
 
     X.graph_cycles = False
-    
 
         
-    L = X.train(
+    mega_out = X.train(
         epochs=LEN,
         eta_array=eta_array,
-        nbhd_params=param_array,
+        nbhd_params=n2v_param_array,
         project_name=project_name,
         pointcloud_data_save=pointcloud_data_save,
         pointcloud_vf_save=pointcloud_vf_save,
@@ -121,14 +123,16 @@ def tn2v(
     )
     
 
-    pd.DataFrame(L[0]).to_csv(path+'mega_out.csv')
-    pd.DataFrame(L[1]).to_csv(path+'timer_data.csv')
+    pd.DataFrame(mega_out[0]).to_csv(path+'mega_out.csv')
+    pd.DataFrame(mega_out[1]).to_csv(path+'timer_data.csv')
     
-    return X #,mega_out
+    return X
 
 
 
 def lite(project):
+    
+    sys.exit("Temporarily disabled.")
     
     out = {}
     
@@ -175,11 +179,14 @@ def lite(project):
     if 'wa_loss_2' in F.columns:
         
         out['wa_loss_2'] = np.mean([x for x in F['wa_loss_2'].values[int(.90*F.shape[0]):-1] if x != 0])
-
     
     return out
 
+
+
 def analyze(project,save=None):
+    
+    sys.exit("Temporarily disabled.")
 
     def PWDM(data):
 
@@ -303,104 +310,109 @@ def analyze(project,save=None):
 
 class TN2V:
     
-    # this is the meat of the soup, so to speak
-    
     def __init__(self,
-                 name,
-                 mode='pointcloud',
-                 data_in=None,
-                 data_extra=None,
-                 given_pd=None,
+                 project_name,
+                 data_pointcloud=None,
+                 data_distance_matrix=None,
+                 data_correlation_matrix=None,
                  embed_dim=2,
-                 homology_dimensions=[],
-                 verbose=1,
-                 W1_data=None,
+                 target_pd=None,
+                 initial_W1=None,
                  name_regen=False,
-                 grad_old=False,
-                 alpha=1.0,
-                 cpu_gpu='cpu'):
+                 cpu_gpu='cpu',
+                 reciprocal_gamma=0.0001,
+                 reciprocal_nu=1.0,
+                 verbose=1):
         
         
-        '''
-        mode: 'pointcloud' or 'distancematrix' or 'correlationmatrix'
-        '''
         
-        if cpu_gpu == 'cpu':
-            import gudhi
-        elif cpu_gpu == 'gpu':
-            import ripserplusplus as rpp
+        self.homology_mode = cpu_gpu
         
-        self.grad_old = grad_old
         
-        self.name = name
+        self.name = project_name
         self.name_regen = name_regen
         
         self.embed_dim = embed_dim
         
         
-        self.alpha = alpha
         
-        self.mode = mode
-        if mode == 'pointcloud':
-            self.target_pointcloud = data_in
-            self.target_distance_matrix = self.PWDM(self.target_pointcloud)
-        elif mode == 'distancematrix':
-            self.target_distance_matrix = data_in
-        elif mode == 'correlationmatrix':
-            self.target_correlation_matrix = data_in
-            if data_extra is not None:
-                self.target_distance_matrix = data_extra
-            else:
-                self.target_distance_matrix = 1/(self.target_correlation_matrix+.0001)
-                if isinstance(self.target_distance_matrix,pd.DataFrame):
-                    self.target_distance_matrix = self.target_distance_matrix.values
+        if data_pointcloud is not None:
+            self.target_pointcloud = data_pointcloud
+        
+        if data_distance_matrix is not None:
+            self.target_distance_matrix = data_distance_matrix
         else:
-            print('invalid mode specified. Please choose one of [pointcloud, distancematrix, correlationmatrix]')
-            
+            if data_pointcloud is not None:
+                self.target_distance_matrix = self.PWDM(data_pointcloud)
+            else:
+                #self.target_distance_matrix = 1/(data_correlation_matrix+reciprocal_gamma)**reciprocal_nu
+                self.target_distance_matrix = 1/(data_correlation_matrix**(1/reciprocal_nu))# - reciprocal_gamma
+        
+        if data_correlation_matrix is not None:
+            self.target_correlation_matrix = data_correlation_matrix
+        else:
+            self.target_correlation_matrix = 1/(self.target_distance_matrix+reciprocal_gamma)**reciprocal_nu
+        
+        
+        if isinstance(self.target_distance_matrix,pd.DataFrame):
+                    self.target_distance_matrix = self.target_distance_matrix.values
+        
+        
         '''
-        *** NOTE: check for uniqueness in distance matrix (i.e., vietoris rips general position is satisfied; we've seen the experiments blow up when this is not the case)
+        *** TODO: check for uniqueness in distance matrix (i.e., vietoris rips general position is satisfied; we've seen the experiments blow up when this is not the case)
         '''
         
-        self.n = data_in.shape[0]
+        
+        self.n = self.target_distance_matrix.shape[0]
 
         self.target_cycles_nontrivial = {}
         
-        if given_pd is not None:
+        if target_pd is not None:
             self.target_cycles_nontrivial = {i:[{'birth_time':p[0],'death_time':p[1]} for p in given_pd[i]] for i in given_pd.keys()}
-            self.given_pd = given_pd
+            self.target_pd = target_pd
         else:
-            self.given_pd = None
+            self.target_pd = None
         
         
         '''
-        Look, we cannot UPSIZE W1, as it seems the node2vec code always wants to put the data set
-        in a [-1,1]^m hypercube. So the other solution is to DOWNSCALE the target distance matrix
+        Note: cannot UPSCALE W1, as it seems the node2vec skip-gram bit always wants to put the data set
+        in a [-1,1]^m hypercube. So the remaining solution is to DOWNSCALE the target distance matrix
         '''
         self.target_autoscaling = True
         if self.target_autoscaling:
-            #W1_mult = np.max(self.target_distance_matrix)/2
             self.target_distance_matrix /= (np.max(self.target_distance_matrix)/2)
         
         '''
-        instantiate parameter matrices.
+        Instantiate parameter matrices.
         W1 can be set manually to resume from some previously achieved embedding or whatever other reason.
         '''
-        if W1_data is None:
+        if initial_W1 is None:
             self.W1 = np.random.uniform(-1.0,1.0,(self.n,embed_dim))
         else:
-            self.W1 = W1_data
+            self.W1 = initial_W1
         
+        '''
+        I don't see a reason you'd ever want to manually set W2
+        '''
         self.W2 = np.random.uniform(-1.0,1.0,(embed_dim,self.n))
         
         '''
-        using self.target_distance_matrix, (which is guaranteed to have been generated by now,
-        no matter the mode), precompute all the objects necessary to sample neighborhood information
+        Using self.target_distance_matrix, (which is guaranteed to have been generated by now,
+        no matter the data type given), precompute all the objects necessary to sample neighborhood information
         from the input graph data.
         '''
         self.generate_n2v_info()
         
+        
+        
+        
+        
+        self.timer = time.time()
+        
+        self.timer_dict = {}
+        
         '''
-        sanity flags, to be trimmed when I can
+        Global variables, to be trimmed if possible.
         '''
         
         self.NBHDs = None
@@ -416,25 +428,23 @@ class TN2V:
         
         self.hic_flag = False
         
-        self.timer = time.time()
-        
-        self.homology_mode = cpu_gpu
-        self.timer_dict = {}
-        
         self.computational_package_imported = False
-        self.PHF = None
+        
+        self.PH_function = None
         
         
     def softmax(self, x):
         '''
-        returns the softmax of a vector
+        Return the softmax of a vector.
         '''
         e_x = np.exp(x - np.max(x))
         return e_x / e_x.sum(axis=0)   
     
     
     def PWDM(self,data):
-
+        '''
+        Compute the pairwise distance matrix (quickly) of a pointcloud.
+        '''
         if isinstance(data,pd.DataFrame):
             data = data.values
             
@@ -449,54 +459,50 @@ class TN2V:
         
     def generate_n2v_info(self):
         
-        if self.mode == 'correlationmatrix':
-            '''
-            basically the correlation matrix can itself immediately serve as the traversal likelihood vectors
-            '''
-            
-            self.nodewise_departure_dict = {}
-            for i in range(self.target_correlation_matrix.shape[0]):
-                self.nodewise_departure_dict[i] = self.softmax(np.delete(self.target_correlation_matrix.values[i],i))
-            
-        else:
+        '''
+        Use the correlation matrix of the target data to generate probability vectors for departing from each node.
+        
+        **Does not support the option to stay put. (I.e., self-loops are ignored.)
+        '''
+        
+        CM = self.target_correlation_matrix
 
-            distance_matrix = self.target_distance_matrix.copy()
 
-            
-            self.edgedict = {}
-            for i in range(distance_matrix.shape[0]):
-                for j in range(i+1,distance_matrix.shape[0]):
-                    self.edgedict[str(i)+'-'+str(j)] = 1/((distance_matrix[i][j]+.0001)**self.alpha)
-                    
-            
-            self.nodewise_departure_dict = {}
-            for i in range(distance_matrix.shape[0]):
-                X = []
-                for j in range(i):
-                    X.append(self.edgedict[str(j)+'-'+str(i)])
+        self.edgedict = {}
+        for i in range(CM.shape[0]):
+            for j in range(i+1,CM.shape[0]):
+                self.edgedict[str(i)+'-'+str(j)] = CM[i][j]
 
-                for j in range(i+1,self.W1.shape[0]):
-                    X.append(self.edgedict[str(i)+'-'+str(j)])
 
-                self.nodewise_departure_dict[i] = list(X/np.sum(X))
+        self.nodewise_departure_dict = {}
+        for i in range(CM.shape[0]):
+            X = []
+            for j in range(i):
+                X.append(self.edgedict[str(j)+'-'+str(i)])
+
+            for j in range(i+1,self.W1.shape[0]):
+                X.append(self.edgedict[str(i)+'-'+str(j)])
+
+            self.nodewise_departure_dict[i] = list(X/np.sum(X))
             
         
     
     def generate_grad_W_B(self,source,target,h,epsilon=0.01,itermax=100):
-        
         '''
         Generate gradient of Wasserstein w.r.t. the Barcode.
         This will call the sinkhorn distance/gradient function.
+        
+        Source and target inputs should are both arrays of pairs of the forms [birth_time,death_time]
         '''
         
-        # source and target are both arrays of pairs of the forms [birth_time,death_time]
         
-        # in the odd event that there is no homology whatsoever...
+        # In the odd event that there is no homology whatsoever... (which can happen with small examples)
         if len(source) == 0 and len(target) == 0:
             print('NO MATCHING AT ALL')
             return [],0
         
-        # see paper draft for "lift" explanation
+        
+        # LIFT code.
         lift = self.lift_array[self.epoch_counter]*(np.max([p['death_time'] for p in self.target_cycles_nontrivial[h]]) - np.min([p['birth_time'] for p in self.target_cycles_nontrivial[h]]))
         
         source_lift = [[-lift*int(i<len(source)),lift*int(i<len(source))] for i in range(len(source))]
@@ -525,29 +531,29 @@ class TN2V:
         
         
         # here is where the gradient is turned negative
+        # do not SUBTRACT this gradient elsewhere
         return -gradS,S
 
+    
     def generate_grad_B_P(self,i):
         '''
         Generate gradient of Barcode w.r.t. the Pointcloud.
         '''
         
+        # see Lemma 2 in the paper and the surrounding section.
+        
         M=self.n
         L=self.embed_dim
 
-        # every birth death coordinate of nontrivial cycles (by) every coordinate of every point of the pointcloud
+        # This matrix has rows corresponding to every birth and every death coordinate of all nontrivial cycles BY columns of every coordinate of every point of the pointcloud.
         gradient = np.zeros((2*len(self.source_cycles_nontrivial[i]),M*L))
 
-        # for every nontrivial cycle
+        # For every nontrivial cycle,
         for s in range(len(self.source_cycles_nontrivial[i])):
 
-            # p has all the info
-            # BUT HEY, THIS INFO IS IN SEQUENTIAL MINIBATCHED INDICES
+            # Depending on the minibatch setting, this object is indexed according to the sequential minibatch indexing, NOT the absolute indexing of the full distance matrix. This means that a simplex of the form (1,4,6) must be converted back with self.batch_to_original to receive absolute indexing. However, the source_distancce_matrix is also constructed relative to minibatching, so this is not yet anything to worry about.
             p = self.source_cycles_nontrivial[i][s]
             
-            print('elucidation p')
-            print(p)
-
             
             Btemp = sorted(p['birth_simplex'])
             if len(Btemp) == 2:
@@ -557,10 +563,7 @@ class TN2V:
                             for k in range(len(Btemp)) for l in range(k+1,len(Btemp))],
                            key = lambda x:x[1])[0][0]
             
-            print('elucidation B')
-            print(B)
-
-
+            
             Dtemp = sorted(p['death_simplex'])
             if len(Dtemp) == 2:
                 D = Dtemp
@@ -569,18 +572,18 @@ class TN2V:
                             for k in range(len(Dtemp)) for l in range(k+1,len(Dtemp))],
                            key = lambda x:x[1])[0][0]
             
-            print('elucidation D')
-            print(D)
-            
             # B = birth edge
             # D = death edge
-            # relative to the global point-naming system? or local w/minibatches?
+            # Finally, if we are in a minibatch setting we convert back to absolute indexing. (If there are no minibatches, the dictionaries below are identity functions on the indexing.)
             
             B = [self.batch_to_original[B[0]],self.batch_to_original[B[1]]]
             D = [self.batch_to_original[D[0]],self.batch_to_original[D[1]]]
             
             [ua,ub] = B
             [uc,ud] = D
+            
+            
+            # Lemma 2 statements.
 
             # (a - b)/||a - b||
             ab_diff = np.subtract(self.W1[ua],self.W1[ub])
@@ -591,23 +594,26 @@ class TN2V:
             cd_diff = cd_diff/np.linalg.norm(cd_diff)
             
             
-            print('elucidation ab_diff')
-            print(ab_diff)
             
-            print('elucidation cd_diff')
-            print(cd_diff)
             
-            # L is the embedding dimension (m)
-            # the gradient matrix is of
-            #  rows = 2*number of nontrivial cycles
-            #  columns = every coordinate of every point (points first, then coords, obviously)
+            
+            
+            # Now we need to fill out the matrix properly for this cycle.
+            
+            # L is the embedding dimension (m).
+            # The gradient matrix, once again, has shape:
+            # • rows = 2*number of nontrivial cycles (sorted generators first, then birth/death),
+            # • columns = every coordinate of every point (sorted points first, then coords).
+            
             for coordinate in range(L):
-                # s is the sequential nontrivial cycle index
-                # split into birth/death, we are indeed interested in 2s and 2s+1 as rows
                 
-                # ua*L+coordinate selects the ua-th section and then, indeed, the appropriate coordinate
-                # this represents that the partial of the s-th generator w.r.t. the ua-th point is indeed the vector ua-ub, normalized
-                # the same thing for the ub-th point is the same vector with the opposite sign
+                # s (in the outer loop) is the sequential nontrivial cycle index.
+                # We are interested in the rows with index 2s and 2s+1 (birth and death coord of s-th generator).
+                
+                # ua*L+coordinate selects the ua-th point and then the current loop permutes through its coordinates.
+                # That is, the partial of the s-th generator w.r.t. the ua-th point is the vector ua-ub, normalized.
+                # The same thing for the ub-th point is the same vector with the opposite sign.
+                
                 gradient[2*s][ua*L+coordinate] = ab_diff[coordinate]
                 gradient[2*s][ub*L+coordinate] =-ab_diff[coordinate]
                 gradient[2*s+1][uc*L+coordinate] = cd_diff[coordinate]
@@ -617,30 +623,42 @@ class TN2V:
 
     
     def one_step_vectors(self,x_in,x_E):
+        '''
+        Skip-gram stuff, one vector at a time.
+        x_in is the one-hot vector of some coordinate of your input data (whether point in pointcloud or index of dist-matrix's rows/cols).
+        x_E is the expected neighborhood vector of the point corresponding to x_in as given by n2v neighborhood generation.
+        
+        This function computes the actual neighborhood information as given by the parameter matrices, compares to x_E, and returns update matrices for both W1 and W2.
+        '''
         
         n,m = self.W1.shape
         
-        # (m x 1): this is x_in's row of W1
+        # (n x 1): this is x_in as a column.
         x_in = np.array(x_in).reshape(n,1)
 
+        # (m x 1): this is x_in's row of W1 turned into a column.
         middle_product = np.dot(x_in.T,self.W1)
         middle_product = middle_product.reshape(m,1)
         
-        # (n x 1)
+        # (n x 1) this is the full matrix product chain.
         ux = np.dot(middle_product.T,self.W2).T
         ux = ux.reshape(n,1)
+        
+        # (n x 1) softmax of the matrix product chain.
         ux_bar = self.softmax(ux).reshape(n,1)
         
-        # x_E - expected probabilities of neighbors for x_in
+        # (n x 1) expected probabilities of neighbors for x_in as given by n2v neighborhood generation.
         x_E = np.array(x_E).reshape(n,1)
         
+        # (scalar) skip-gram cross entropy loss between actual and expected nbhd probabilites.
         self.sg_loss = -np.sum([x_E[i]*np.log(ux_bar[i]) for i in range(n)])
         
+        # (n x 1) error vector (difference vector)
+        # see Paper, Proposition 1 for use in gradient update statements.
         error_vector = np.subtract(ux_bar,x_E)
         
         error_scalar = np.sum(error_vector,axis=0)
-        #if verbose > 0:
-        #    print('pair error is '+str(error_scalar))
+        
         error_vector = error_vector.reshape(n,1)
         
         # (m x 1) outer (n x 1)
@@ -651,58 +669,13 @@ class TN2V:
         
         return dL_dW1,dL_dW2
         
-            
-    def one_step(self,x_in,x_E,i,verbose=0):
-        '''
-        performs one pass of the network with a single in-out pair
+
         
-        notation:
-        ux_bar         - softmaxed output vector
-        ux             - pre-softmaxed output vector
-        middle_product - x_in * W1
-        '''
-        
-        n,m = self.W1.shape
-        
-        # (m x 1): this is x_in's row of W1
-        x_in = np.array(x_in).reshape(n,1)
-        if self.W1.shape != (self.n,self.embed_dim):
-            print('W1 shape mismatch?')
-        middle_product = np.dot(x_in.T,self.W1)
-        middle_product = middle_product.reshape(m,1)
-        
-        # (n x 1)
-        if self.W2.shape != (self.embed_dim,self.n):
-            print('W2 shape mismatch?')
-        ux = np.dot(middle_product.T,self.W2).T
-        ux = ux.reshape(n,1)
-        ux_bar = self.softmax(ux).reshape(n,1)
-        
-        # x_E - expected probabilities of neighbors for x_in
-        x_E = np.array(x_E).reshape(n,1)
-        
-        #self.sg_loss = -np.sum([x_E[i]*np.log(ux_bar[i]) for i in range(n)])
-        self.sg_loss = -1*np.log(ux_bar[i])
-        
-        error_vector = np.subtract(ux_bar,x_E)
-        
-        error_scalar = np.sum(error_vector,axis=0)
-        if verbose > 0:
-            print('pair error is '+str(error_scalar))
-        error_vector = error_vector.reshape(n,1)
-        
-        # (m x 1) outer (n x 1)
-        dL_dW2_single = np.outer(middle_product,error_vector)
-        
-        # (n x 1) outer [(m x n) dot (n x 1)]
-        dL_dW1_single = np.outer(x_in, np.dot(self.W2,error_vector))
-        
-        return dL_dW1_single,dL_dW2_single
-    
         
     def print_vf_bc(self,i,save=True,wma=0):
         '''
         A function for printing out the vector-field of barcode gradient movements.
+        (**RATHER OLD**)
         '''
         
         if len(self.P0[i]) == 0 or len(self.P1[i]) == 0:
@@ -746,12 +719,11 @@ class TN2V:
     def print_vf_pc(self):
         '''
         A function for printing out the vector-field of pointcloud gradient movements.
+        (**RATHER OLD**)
         '''
         
         fig1 = plt.figure(figsize=(10,8))
 
-        print('-- printing pointcloud')
-        
         X1 = self.previous_W1
         
         if self.data_color is not None:
@@ -767,7 +739,7 @@ class TN2V:
 
             plt.plot([X1[i][0],self.W1[i][0]],[X1[i][1],self.W1[i][1]],label='movement gradient',color='black')
                 
-        if self.graph_cycles:
+        if False: #self.graph_cycles:
             # ******** this is un-checked and un-updated code that I may still want to implement later
             
             # presently hard-coded to degree 1
@@ -802,94 +774,63 @@ class TN2V:
         #plt.legend(handles, labels, loc='best')
         #plt.show()
 
-        print('pc save statement')
         
         plt.legend(handles, labels,loc=1)
         plt.title('former pointcloud plot, lines trace to updated positions for current W1')
         plt.savefig(home+'/tn2v_output/'+self.name+'/print_vf_pc_'+str(self.epoch_counter).zfill(12)+'.png')
         plt.close()
         
+        
+    
     
     def train(self,
               epochs,
               eta_array,
               nbhd_params,
               project_name,
-              subsample_points=None,
-              subsample_nbhds=None,
+              subsample_points=None, #unused **
+              subsample_nbhds=None, #unused **
               pointcloud_data_save=None,
               pointcloud_vf_save=None,
               sg_mult_array=None,
               wa1_mult_array=None,
               wa2_mult_array=None,
               lift_array=None,
-              minibatch_sizes=None, # minibatch_sizes
-              hausdorff_subsample_threshold=0.5,
-              almm={'mode':False,
-                    'b_initial':0.05,
-                    'b_growth':1.5,
-                    'b_max':1,
-                    'l_initial':0},
-              PD_window=None,
-              nbhd_regen=None):
+              minibatch_sizes=None,
+              nbhd_regen=None,
+              hausdorff_subsample_threshold=0.5 #currently unadjustable in order to remove hyperparameter bloat
+             ):
         '''
-        e = number of epochs
-        eta = step size / learning parameter (constant multiple of gradient for updating network parameters)
-        p = return parameter
-        q = advance parameter
-        l = length of each walk
-        r = number of walks
-        subsample_points = sample size of original data for each epoch (if None, xs = cardinality of input data)
-        subsample_nbhds = sample size of neighborhood for each data point (if None, ns = l*r)
-        
-        * relative weights on the gradients of skip-gram vs wasserstein
-          and whether or not to run said gradient at any given step
-          are entirely governed by sg_mult_array and wa_mult_array
-        
+        After a TN2V object is instantiated, this function must be called in order to do the training.
         '''
         
+        # this is used if minibatching to ensure that the subset acquired is at least vaguely indicative of the main dataset; I haven't adjusted this in a long time, so I don't know how strict it is or if it's even helping.
         self.hausdorff_subsample_threshold = hausdorff_subsample_threshold
         
-        # this makes a triangle in the upper half plane and only considers generators in that triangle — not sure why I included this or wanted to use it, but it's here and implemented...
-        if PD_window is not None:
-            self.PD_window = PD_window
-        else:
-            self.PD_window = None
+        
+        
             
         if lift_array is None:
             self.lift_array = [0 for i in range(epochs)]
         else:
             self.lift_array = lift_array
         
-        '''
-        minibatch_size of None (or size of the whole data set) skips mini-batching code altogether and just goes ahead and generates the PD of the target data ONE TIME.
-        '''
-        #if minibatch_size is None or minibatch_size == self.W1.shape[0]:
-        #    self.batches = False
-        #else:
-        #    self.minibatch_size = minibatch_size
-        #    self.batches = True
-            
-
         
-        if subsample_points is None or subsample_points > self.n:
-            subsample_points = self.n
+        
+        
+        
+        # **** unused
+        
+        #if subsample_points is None or subsample_points > self.n:
+        #    subsample_points = self.n
             
         #if subsample_nbhds is None or subsample_nbhds > l*r:
         #    subsample_nbhds = l*r
            
-        # currently sloppy ALMM (augmented lagrange multiplier method) code, but it is functional
-        if almm['mode']:
-            try:
-                self.almm
-            except:
-                self.almm = {}
-                self.almm['b_mult'] = almm['b_initial']
-                self.almm['b_max'] = almm['b_max']
-                self.almm['l_mult'] = {i:almm['l_initial'] for i in self.HD}
-                self.almm['b_growth'] = almm['b_growth']
-        else:
-            self.almm = {}
+        
+        
+        
+        
 
         mega_out = {}
         
@@ -908,6 +849,7 @@ class TN2V:
             
             i = self.epoch_counter
             
+            
             if minibatch_sizes == None:
                 self.batches = False
             else:
@@ -916,6 +858,7 @@ class TN2V:
                 else:
                     self.minibatch_size = minibatch_sizes[i]
                     self.batches = True
+            
             
             self.eta = eta_array[i]
             
@@ -926,103 +869,78 @@ class TN2V:
             
             self.timer_dict[i] = {}
             
+            
             if not self.nbhd_info_generated:
-                print('gen nbhds INITIAL: '+str(round(time.time()%1000,3)))
                 self.timer_dict[i]['get nbhs start'] = (round(time.time()%1000,3))
                 self.gen_nbhds(p,q,l,r)
                 
                 self.nbhd_info_generated = True
+            
             
             else:
                 if not nbhd_regen is None:
                     if i%nbhd_regen == 0:
                     # generate a new training set.
 
-                        print('gen nbhds epoch '+str(i)+': '+str(round(time.time()%1000,3)))
                         self.timer_dict[i]['get nbhs start'] = (round(time.time()%1000,3))
                         self.gen_nbhds(p,q,l,r)
 
-                        # **** need to reimplement this for nbhd subsampling
-                        #inputs,outputs = self.generate_training_set(subsample_points,subsample_nbhds)
-                        #training_data = [[inputs[j],outputs[j]] for j in range(len(inputs))]
-                        #print('gen nbhds end: '+str(round(time.time()%1000,3)))
-                        #self.timer_dict[i]['gen nbhds end'] = (round(time.time()%1000,3))
+                        # **** flag for reimplementing neighborhood subsampling
 
 
             
-            print('EPOCH #'+str(i))
             self.timer_dict[i] = {}
-            print('EPOCH start: '+str(round(time.time()%1000,3)))
             self.timer_dict[i]['EPOCH start'] = (round(time.time()%1000,3))
             
                 
-            '''
-            instantiate gradient matrices here, because the loss function is computed POINT by POINT in the training data, so we aggregate all the changes into these matrices.
-            '''
             
             self.previous_W1 = self.W1.copy()
             
             
+            # What homology dimensions are you interested in? Check epoch by epoch to see if lambda1, lambda2 are non-zero.
             self.HD = []
             if wa1_mult_array[i] != 0:
                 self.HD.append(1)
             if wa2_mult_array[i] != 0:
                 self.HD.append(2)
             
+            # If you are interested in any homology:
             if len(self.HD) > 0:
                 
-                #print('- wa1_mult_array is not none, epoch is '+str(self.epoch_counter))
-                #print('- wa1_mult_array[epoch] = '+str(wa1_mult_array[self.epoch_counter]))
-
                 self.wasserstein_full()
                 
-                if almm['mode']:
-                    
-                    self.gradient_product = {}
-                    for h in self.HD:
-                        self.gradient_product[h] = -self.almm['l_mult'][h]+self.almm['b_mult']*self.WD[h]
-                        self.W1 += self.eta*min(self.gradient_product[h],wa1_mult_array[i])*self.final_wass_gradient[h]
-                        
-                        self.almm['l_mult'][h] = self.almm['l_mult'][h] - self.almm['b_mult']*self.WD[h]
-                    
-                    self.almm['b_mult'] *= 1+(self.almm['b_growth']-1)*int(self.almm['b_mult'] < self.almm['b_max'])
-                    
-                else:
-                    
-                    print('wa_out1: '+str(round(time.time()%1000,3)))
-                    self.timer_dict[i]['wa_out1'] = (round(time.time()%1000,3))
-                    
-                    self.gradient_product = {}
-                    for h in self.HD:
-                        self.gradient_product[h] = wa1_mult_array[i]*(int(h==1))+wa2_mult_array[i]*(int(h==2))
-                        self.W1 += self.eta*self.gradient_product[h]*self.final_wass_gradient[h]
-                    print('wa_out2: '+str(round(time.time()%1000,3)))
-                    self.timer_dict[i]['wa_out2'] = (round(time.time()%1000,3))
+                self.timer_dict[i]['wa_out1'] = (round(time.time()%1000,3))
+
+                self.gradient_product = {}
+                
+                for h in self.HD:
+                    self.gradient_product[h] = wa1_mult_array[i]*(int(h==1))+wa2_mult_array[i]*(int(h==2))
+                    self.W1 += self.eta*self.gradient_product[h]*self.final_wass_gradient[h]
+                
+                self.timer_dict[i]['wa_out2'] = (round(time.time()%1000,3))
+                
             else:
-                self.gradient_product = {i:0 for i in self.HD}
+                
+                self.gradient_product = {} #{i:0 for i in self.HD}
             
             
             
             
             
             
-            
-            
-            
-            
-            # node2vec portion
+            # node2vec gradient update
             
             sg_loss_list = []
             
             if sg_mult_array[i] != 0:
             
-                print('sg_start: '+str(round(time.time()%1000,3)))
                 self.timer_dict[i]['sg_start'] = (round(time.time()%1000,3))
 
-                # instantiate gradient matrices outside of the next loop, in which we compute gradient for every vertex's nbhd individually, compile them in these matrices, then enact the summed gradients all AT ONCE. Otherwise there is this weird imbalance with the numerically 'later' vertices getting a more nuanced update than the early ones.
+                # Instantiate gradient matrices outside of the incoming loop, in which we compute the gradient for every vertex's nbhd individually, compile them in these matrices, then enact the summed gradients all AT ONCE. Otherwise there is this weird imbalance with the numerically 'later' vertices getting a more nuanced update than the early ones.
                 self.SG_W1_grad = np.zeros(self.W1.shape)
                 self.SG_W2_grad = np.zeros(self.W2.shape)
 
+                
                 # go through all vertices and their respective training nbhds
                 for x in self.NBHDs.keys():
 
@@ -1047,7 +965,6 @@ class TN2V:
                 self.W1 -= self.eta*sg_mult_array[i]*self.SG_W1_grad
 
                 
-            print('sg_end: '+str(round(time.time()%1000,3)))
             self.timer_dict[i]['sg_end'] = (round(time.time()%1000,3))
             
             
@@ -1056,7 +973,7 @@ class TN2V:
             
             
             
-            # the rest is all data collection for saving to the "mega_out" file/object for review
+            # the rest is all data collection for saving to the "mega_out" file / object for review
                 
             mega_out[i] = {}
                         
@@ -1066,19 +983,13 @@ class TN2V:
             mega_out[i]['sg_w1_grad_MAX'] = np.max(np.abs(self.SG_W1_grad))
             mega_out[i]['sg_w2_grad_MAX'] = np.max(np.abs(self.SG_W2_grad))
             
-            if almm['mode']:
-                mega_out[i]['b_mult'] = self.almm['b_mult']
-                mega_out[i]['l_mult'] = {}
-                for h in self.HD:
-                    mega_out[i]['l_mult'][h] = self.almm['l_mult'][h]
-
+            
             try:
                 for h in self.HD:
                     mega_out[i]['wass_grad_'+str(h)+'_MEAN'] = np.sum(np.abs(self.final_wass_gradient[h]))/len(np.nonzero(self.final_wass_gradient[h])[0])
                     mega_out[i]['wass_grad_'+str(h)+'_MAX'] = np.max(np.abs(self.final_wass_gradient[h]))
 
                     mega_out[i]['wa_loss_'+str(h)] = self.WD[h]
-                    print('wd'+str(h)+': '+str(self.WD[h]))
             except:
                 for h in self.HD:
                     mega_out[i]['wass_grad_'+str(h)+'_MEAN'] = -1
@@ -1110,12 +1021,12 @@ class TN2V:
                             self.print_vf_bc(j,wma=self.gradient_product[j])
             
             
-            print('EPOCH end: '+str(round(time.time()%1000,3)))
             self.timer_dict[i]['EPOCH end'] = (round(time.time()%1000,3))
-            print('\n')
             self.epoch_counter += 1
             
         return mega_out,self.timer_dict
+    
+    
     
     def gen_PD(self,D):
         
@@ -1123,24 +1034,24 @@ class TN2V:
             if self.homology_mode == 'gpu':
                 import ripserplusplus as rpp
                 self.computational_package_imported = True
-                self.PHF = rpp
+                self.PH_function = rpp
             elif self.homology_mode == 'cpu':
                 import gudhi
                 self.computational_package_imported = True
-                self.PHF = gudhi
+                self.PH_function = gudhi
         
         if self.homology_mode == 'gpu':
 
             def radius_of_simplex(s):
                 return np.max([D[s[i]][s[j]] for i in range(len(s)) for j in range(i+1,len(s))])
 
-            X = self.PHF.run('--format distance --dim '+str(max(self.HD)),D)
+            X = self.PH_function.run('--format distance --dim '+str(max(self.HD)),D)
 
             rpp_hom_dict = {}
             for dim in self.HD:
                 if dim == 0:
                     continue
-                    # our edited ripser-plusplus code does NOT accomodate dim0 at the moment
+                    # our edited ripser-plusplus code does NOT accomodate dim0 at the moment ****
                 rpp_hom_dict[dim] = []
                 for l in X[dim]:
                     rpp_hom_dict[dim].append([[l[i] for i in range(dim+1)],[l[5+i] for i in range(dim+2)]])
@@ -1158,7 +1069,7 @@ class TN2V:
         
         elif self.homology_mode == 'cpu':
             
-            rips_complex = gudhi.RipsComplex(distance_matrix=D)
+            rips_complex = self.PH_function.RipsComplex(distance_matrix=D)
             rips_simplex_tree = rips_complex.create_simplex_tree(max_dimension = max(self.HD)+1)
             rips_simplex_tree.compute_persistence()
             
@@ -1333,13 +1244,7 @@ class TN2V:
 
             outputs.append(prob_vector)
             
-            # very bad check just to ensure that these were being probability vectors
-            #if int(np.sum(prob_vector)*100) not in [99,100]:
-            #    print('x_E\'s not prob vectors')
-            #    print(prob_vector)
-            #    print(np.sum(prob_vector))
 
-        # make one-hot vectors for each of the indices left in CHOOSE_inputs
         inputs = [[int(i==ri) for i in range(len(list(self.NBHDs.keys())))] for ri in CHOOSE_inputs]
 
         return inputs,outputs
@@ -1352,7 +1257,6 @@ class TN2V:
         Compute and apply the wasserstein gradient
         '''
         
-        print('wa_full_1: '+str(round(time.time()%1000,3)))
         self.timer_dict[self.epoch_counter]['wa_full_1'] = (round(time.time()%1000,3))
         
         # if mini-batching, need to compute target homology each step
@@ -1374,22 +1278,22 @@ class TN2V:
         
         
         
-        print('wa_full_2: '+str(round(time.time()%1000,3)))
         self.timer_dict[self.epoch_counter]['wa_full_2'] = (round(time.time()%1000,3))
         
-        
-        print('wa_full_3: '+str(round(time.time()%1000,3)))
         self.timer_dict[self.epoch_counter]['wa_full_3'] = (round(time.time()%1000,3))
+        
         
         self.generate_source_objects()
         
-        print('wa_full_4: '+str(round(time.time()%1000,3)))
+        
         self.timer_dict[self.epoch_counter]['wa_full_4'] = (round(time.time()%1000,3))
+        
         
         self.wasserstein_gradient()
         
-        print('wa_full_5: '+str(round(time.time()%1000,3)))
+        
         self.timer_dict[self.epoch_counter]['wa_full_5'] = (round(time.time()%1000,3))
+        
         
         M,L = self.n,self.embed_dim
         self.final_wass_gradient = {}
@@ -1399,35 +1303,38 @@ class TN2V:
                 self.final_wass_gradient[i] = np.zeros((M,L))
             else:
                 self.final_wass_gradient[i] = self.grad_W_P[i].reshape(M,L)
-        print('wa_full_6: '+str(round(time.time()%1000,3)))
+        
         self.timer_dict[self.epoch_counter]['wa_full_6'] = (round(time.time()%1000,3))
                 
     
     def generate_source_objects(self):
         
-        print('gen_source_1: '+str(time.time()))
+        
         self.timer_dict[self.epoch_counter]['gen_source_pd_1'] = (round(time.time()%1000,3))
         
         if self.batches:
             self.source_pointcloud = [self.W1[i] for i in self.batch_indices]
         else:
-            self.source_pointcloud = self.W1 #.copy() **** I don't think the copy is necessary? And if we're trying to maximize speed anything helps; cloning an entire n x m matrix is pretty unnecessary.
+            self.source_pointcloud = self.W1 #.copy()
         
-        print('gen_source_2: '+str(time.time()))
+
         self.timer_dict[self.epoch_counter]['gen_source_pd_2'] = (round(time.time()%1000,3))
         
-        # **** currently new most computation-intensive component of the code.
+        
         self.source_distance_matrix = self.PWDM(self.source_pointcloud)
         
-        print('gen_source_3: '+str(time.time()))
+        
         self.timer_dict[self.epoch_counter]['gen_source_pd_3'] = (round(time.time()%1000,3))
+        
         
         self.source_PD_dth_diagram = self.gen_PD(self.source_distance_matrix)
         
-        print('gen_source_4: '+str(time.time()))
+        
         self.timer_dict[self.epoch_counter]['gen_source_pd_4'] = (round(time.time()%1000,3))
         
+        
         self.source_cycles_nontrivial = {}
+        
         
         for h in self.HD:            
                 
@@ -1443,7 +1350,7 @@ class TN2V:
                  
             self.source_cycles_nontrivial[h] = scn
             
-        print('gen_source_5: '+str(time.time()))
+        
         self.timer_dict[self.epoch_counter]['gen_source_pd_5'] = (round(time.time()%1000,3))
 
                 
@@ -1455,17 +1362,8 @@ class TN2V:
         with respect to the individual coordinates of the W1 pointcloud/matrix.
         '''
         
-        print('ENTER wasserstein_gradient')
+        #print('ENTER wasserstein_gradient')
         
-        if self.PD_window is not None:
-            [x,y] = self.PD_window
-            for h in self.target_cycles_nontrivial.keys():
-                self.target_cycles_nontrivial[h] = [p for p in self.target_cycles_nontrivial
-                              if x<p['death_time']-p['birth_time']
-                              and p['death_time']-p['birth_time']<y]
-                self.source_cycles_nontrivial[h] = [p for p in self.source_cycles_nontrivial
-                              if x<p['death_time']-p['birth_time']
-                              and p['death_time']-p['birth_time']<y]
         
         # purely for notational sanity
         self.P0 = self.target_cycles_nontrivial
@@ -1485,8 +1383,7 @@ class TN2V:
         for h in self.HD:
             
             if len(self.P1[h]) == 0 or len(self.P0[h]) == 0:
-                # particularly with high-dimensional homology, this might happen a lot.
-                # setting self.WD[i] to zero is necessary to cause no interruption where? ****
+                # **** setting this to 0 saved some error from showing up somewhere
                 self.WD[h] = 0
                 continue
             
@@ -1497,24 +1394,24 @@ class TN2V:
         
             self.grad_W_B[h] = grad_W_B
             
-            print('grad_W_B for elucidation')
-            print(self.grad_W_B[h])
+            #rint('grad_W_B for elucidation')
+            #rint(self.grad_W_B[h])
         
             grad_W_B_lin = grad_W_B.reshape(grad_W_B.shape[0]*grad_W_B.shape[1],1)
             self.grad_W_B_LIN[h] = grad_W_B_lin
             
             self.grad_B_P[h] = self.generate_grad_B_P(h)
             
-            print('grad_W_B_LIN for elucidation')
-            print(self.grad_W_B_LIN[h])
+            #rint('grad_W_B_LIN for elucidation')
+            #rint(self.grad_W_B_LIN[h])
             
-            print('grad_B_P for elucidation')
-            print(self.grad_B_P[h])
+            #rint('grad_B_P for elucidation')
+            #rint(self.grad_B_P[h])
             
             self.grad_W_P[h] = np.matmul(np.transpose(self.grad_W_B_LIN[h]),self.grad_B_P[h])
             
-            print('grad_W_P for elucidation')
-            print(self.grad_W_P[h])
+            #rint('grad_W_P for elucidation')
+            #rint(self.grad_W_P[h])
         
             
     def mini_batch(self):
@@ -1532,18 +1429,19 @@ class TN2V:
             haus = scipy.spatial.distance.directed_hausdorff(self.W1,subdata)[0]
             counter += 1
 
-        if haus > self.hausdorff_subsample_threshold and counter >= 100:
-            print('****Escaped subsampling loop due to counter. Recommend increasing minibatch size.')
+        #if haus > self.hausdorff_subsample_threshold and counter >= 100:
+        #    print('Escaped subsampling loop due to counter. Recommend increasing minibatch size.')
 
-        print('-- generated batch indices for wasserstein')
-        #print(self.source_indices)
+        
         
         # you don't put in a batch's index, you put in a SEQUENTIAL number for the batch index you're interested in, and it gives you the sequential index of the original index — so basically, batch to original is pointless lol, but ok
         self.batch_to_original = {i:self.batch_indices[i] for i in range(len(self.batch_indices))}
         self.original_to_batch = {self.batch_indices[i]:i for i in range(len(self.batch_indices))}
 
         
-        # SUBOPTIMAL — subselect pointcloud first and then just use super fast PWDM, bro ****************
+        #self.target_distance_matrix_BATCH = np.array([np.array(self.target_distance_matrix[i]) for i in self.batch_indices])
+        
+        # SUBOPTIMAL:
         self.target_distance_matrix_BATCH = np.zeros((len(self.batch_indices),len(self.batch_indices)))
         for r in range(self.target_distance_matrix_BATCH.shape[0]):
             for c in range(self.target_distance_matrix_BATCH.shape[1]):
